@@ -1,0 +1,86 @@
+# Starter configuration: 6U CubeSat with four reaction wheels.
+# Level 1 forward dynamics only. All values are in SI units.
+#
+# Source tags:
+#   [NASA-SoA]   NASA State-of-the-Art of Small Spacecraft Technology, GNC chapter
+#   [CALC]       Calculated from the stated assumptions
+#   [ASSUMPTION] Project assumption. Not from a source. Confirm before the report.
+
+body:
+  mass_kg: 11.0                      # midpoint of the 10 kg to 12 kg range
+  # Uniform box of 0.10 m x 0.20 m x 0.30 m at 11 kg. [CALC]
+  # This matrix is the only body parameter that the dynamics use.
+  inertia_kg_m2:
+    - [0.1192, 0.0,    0.0]
+    - [0.0,    0.0917, 0.0]
+    - [0.0,    0.0,    0.0458]
+
+wheels:
+  # Spin axis i = [sin(b)cos(az_i), sin(b)sin(az_i), cos(b)], b measured from body +z.
+  skew_angle_from_z_deg: 54.7356     # gives A A^T = (4/3) I  [CALC]
+  azimuth_deg: [0.0, 90.0, 180.0, 270.0]
+  u_max_Nm: 0.004                    # BCT RWp015 peak torque [NASA-SoA]
+  h_max_Nms: 0.015                   # BCT RWp015 momentum capacity [NASA-SoA]
+  # Used only to convert momentum to wheel speed (for logs and visualization).
+  # Value gives 6000 rpm at h_max. [ASSUMPTION]
+  rotor_inertia_kg_m2: 2.39e-5
+
+sim:
+  dt_s: 0.01
+  t_end_s: 60.0
+  q0: [0.0, 0.0, 0.0, 1.0]           # [x, y, z, w], body-to-inertial
+  w0_rad_s: [0.0, 0.0, 0.0]          # body rate, in the body frame
+  h0_Nms: [0.0, 0.0, 0.0, 0.0]       # wheel momentum
+
+# Open-loop wheel torque commands. A controller will replace this section later.
+# Outside all segments, the command is zero.
+# Default: a rest-to-rest rotation of approximately 7.85 deg about body -x
+# (body torque = -A u = [-1.63e-4, 0, 0] N·m, then the reverse).
+open_loop_command:
+  - {t_start_s: 5.0,  t_end_s: 15.0, u_Nm: [ 0.0001, 0.0, -0.0001, 0.0]}
+  - {t_start_s: 15.0, t_end_s: 25.0, u_Nm: [-0.0001, 0.0,  0.0001, 0.0]}
+
+# Proposed project requirements (research.md, "Recommended project requirements").
+# The dynamics do not read this section. The plots draw these limits, and the controller
+# evaluation will check them. Project values, not mission standards. [ASSUMPTION]
+requirements:
+  pointing_error_arcsec_rms: 30.0     # during the 20 min hold
+  pointing_error_arcsec_3sigma: 60.0
+  settle_band_arcsec: 60.0            # enter and stay inside after the slew...
+  settle_rate_deg_s: 0.01             # ...with the body rate below this
+  settle_time_s: 30.0                 # time allowed after the planned slew ends
+  max_slew_rate_deg_s: 0.5            # star tracker tracking limit
+  wheel_momentum_warning_frac: 0.8    # flag wheels above 80 % of h_max
+
+# The dynamics do not read this section. It is for the visualization tool only.
+visualization:
+  body_size_m: [0.10, 0.20, 0.30]    # box drawn along body x, y, z (same box as the inertia)
+  wheel_cluster_center_m: [0.0, 0.0, -0.08]   # [ASSUMPTION]
+  wheel_offset_m: 0.03               # distance of each wheel from the cluster center [ASSUMPTION]
+  wheel_radius_m: 0.02               # [ASSUMPTION]
+  wheel_thickness_m: 0.01            # [ASSUMPTION]
+  axis_length_m: 0.25                # length of the drawn body axes
+  fps: 30
+  playback_speed: 1.0                # 2.0 = two times faster than real time
+  trail_length_s: 10.0               # length of the trace of the body z axis
+
+# ---------------------------------------------------------------------------
+# Level 2 reference values from the research. The model does not use them yet.
+# Remove the comment marks when you add disturbances and sensors.
+#
+# environment:
+#   altitude_km: 500.0
+#   residual_dipole_Am2: 0.1         # gives ~3.2e-6 N·m peak (Franquiz)
+#   peak_torque_Nm:                  # 12 kg 6U at 500 km (Franquiz)
+#     magnetic: 3.2e-6
+#     aerodynamic: 1.2e-6
+#     gravity_gradient: 1.6e-7
+#     solar_pressure: 0.9e-7
+# sensors:
+#   star_tracker:                    # BCT Standard NST [NASA-SoA]
+#     cross_boresight_arcsec_1sigma: 6.0
+#     roll_arcsec_1sigma: 40.0
+#     rate_hz: 5.0
+#   gyro:                            # small-spacecraft state of the art [NASA-SoA]
+#     bias_stability_deg_h: 0.15
+#     arw_deg_sqrt_h: 0.02

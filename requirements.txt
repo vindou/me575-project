@@ -1,0 +1,8 @@
+numpy
+pyyaml
+pytest
+scipy
+jax
+hypothesis
+marimo
+plotly
