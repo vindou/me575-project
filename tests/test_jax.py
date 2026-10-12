@@ -13,7 +13,7 @@ from cubesat_sim.quaternion import angle_between
 from cubesat_sim.sim import _simulate_jit, open_loop_command
 from helpers import make
 
-AZIMUTHS = (0.0, 90.0, 180.0, 270.0)
+AZIMUTHS = (45.0, 135.0, 225.0, 315.0)
 
 
 def no_wheel_torque(t, x):
@@ -52,21 +52,21 @@ def test_outputs_are_float64(cfg):
 
 def test_gradients_match_finite_differences(cfg):
     """Forward and reverse mode against central differences, through the whole scan,
-    with respect to inertia, wheel skew angle, initial state and a feedback gain."""
+    with respect to inertia, wheel angle beta, initial state and a feedback gain."""
 
     @jax.jit
-    def final_state(J, skew, x0, gain):
+    def final_state(J, beta, x0, gain):
         body = dataclasses.replace(cfg.body, J=J)
-        wheels = dataclasses.replace(cfg.wheels, A=wheel_axes(skew, AZIMUTHS))
+        wheels = dataclasses.replace(cfg.wheels, A=wheel_axes(beta, AZIMUTHS))
 
         def command(t, x):                     # rate damping plus a bias, inside the limits
-            return gain * wheels.A.T @ x[4:7] + 1e-4 * jnp.sin(t)
+            return -gain * wheels.A.T @ x[4:7] + 1e-4 * jnp.sin(t)
 
         r = simulate(body, wheels, x0, 0.05, 100, command)
         return jnp.concatenate([r["q"][-1], r["w"][-1], r["h"][-1]])
 
     J = cfg.body.J + 0.005 * jnp.array([[0.0, 1.0, 0.5], [1.0, 0.0, -0.3], [0.5, -0.3, 0.0]])
-    check_grads(final_state, (J, 54.7356, x0_tumbling(), 0.05), order=1, modes=("fwd", "rev"))
+    check_grads(final_state, (J, 35.2644, x0_tumbling(), 0.05), order=1, modes=("fwd", "rev"))
 
 
 def test_gradient_of_slew_angle_matches_closed_form(cfg):

@@ -26,10 +26,17 @@ It has no controller, no disturbances, and no sensors.
 
 ## Conventions
 
-- Quaternion: `[x, y, z, w]`, scalar last, body-to-inertial (same as scipy).
+The conventions follow Navabi & Hosseini, *Spacecraft quaternion based attitude
+input-output feedback linearization control using reaction wheels* (the PDF in the repo).
+Code symbols map to the paper as `J` = I_S, `A` = L, `h` = I_W ω_W, `u` = T_w.
+
+- Quaternion: `[x, y, z, w]`, scalar last, body-to-inertial (same as scipy). This is the
+  paper's Q = [q1 q2 q3 q4] with q4 = cos(α/2) (eq. 2), and q̇ = ½[Ω′]Q (eqs. 3–4).
 - Body rate `w`: in the body frame, rad/s.
-- Wheel torque `u`: torque of the motor on the wheel. The body gets `-A u`.
-- Wheel angle: `skew_angle_from_z_deg` is measured from body +z.
+- Wheel torque `u`: the paper's T_w, torque of each wheel on the body. The body gets
+  `T_C = A u` (eq. 12) and the wheel momentum changes by `h_dot = -u` (eq. 10).
+- Wheel geometry: the paper's pyramid (eq. 13). `beta_from_xy_deg` (β) is measured from
+  the body xy plane; `azimuth_deg` starts at the paper's θ = 45° and adds 90° per wheel.
 
 ## Visualization
 
@@ -74,4 +81,4 @@ The model is written in JAX with double precision on (set when `cubesat_sim` is 
 ## How to add a controller later
 
 `run(cfg, command=f)` accepts a function `f(t, x)` that returns the four wheel torque
-commands. The open-loop profile in the file is the default for this function.
+commands T_w. For a body torque command T_C, the paper's allocation (eq. 21) gives T_w. The open-loop profile in the file is the default for this function.

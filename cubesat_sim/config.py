@@ -17,7 +17,7 @@ import yaml
 @dataclass(frozen=True)
 class BodyParams:
     mass: jax.Array
-    J: jax.Array         # 3x3 inertia, body frame
+    J: jax.Array         # 3x3 inertia, body frame (paper: I_S)
 
     @property
     def J_inv(self):
@@ -27,7 +27,7 @@ class BodyParams:
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class WheelParams:
-    A: jax.Array         # 3xN, column i = spin axis of wheel i in the body frame
+    A: jax.Array         # 3xN, column i = spin axis of wheel i in the body frame (paper: L)
     u_max: jax.Array
     h_max: jax.Array
     rotor_inertia: jax.Array
@@ -73,12 +73,16 @@ class Config:
     raw: dict            # the file contents, saved with each result
 
 
-def wheel_axes(skew_from_z_deg, azimuth_deg):
-    b = jnp.radians(skew_from_z_deg)
+def wheel_axes(beta_deg, azimuth_deg):
+    """Distribution matrix L of the paper (eq. 13): column i = spin axis of wheel i.
+
+    beta is measured from the body xy plane; the paper's theta is the first azimuth.
+    """
+    b = jnp.radians(beta_deg)
     az = jnp.radians(jnp.asarray(azimuth_deg, dtype=float))
-    return jnp.vstack([jnp.sin(b) * jnp.cos(az),
-                       jnp.sin(b) * jnp.sin(az),
-                       jnp.cos(b) * jnp.ones_like(az)])
+    return jnp.vstack([jnp.cos(b) * jnp.cos(az),
+                       jnp.cos(b) * jnp.sin(az),
+                       jnp.sin(b) * jnp.ones_like(az)])
 
 
 def _positive(value, name):
@@ -100,7 +104,7 @@ def load_config(path):
                       jnp.asarray(J))
 
     w = raw["wheels"]
-    A = wheel_axes(float(w["skew_angle_from_z_deg"]), w["azimuth_deg"])
+    A = wheel_axes(float(w["beta_from_xy_deg"]), w["azimuth_deg"])
     if np.linalg.matrix_rank(np.asarray(A)) < 3:
         raise ValueError("the wheel axes do not give torque on all three body axes")
     wheels = WheelParams(A,

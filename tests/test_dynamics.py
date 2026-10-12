@@ -13,7 +13,7 @@ from hypothesis import given
 from cubesat_sim import dynamics as dyn
 from cubesat_sim import quaternion as quat
 from cubesat_sim.config import BodyParams, WheelParams
-from helpers import inertias, states, vectors
+from helpers import inertias, quaternions, states, vectors
 
 deriv = jax.jit(dyn.state_derivative)
 limit = jax.jit(dyn.limit_wheel_torque)
@@ -39,6 +39,27 @@ def test_body_momentum_rate_is_gyroscopic_plus_external(cfg, x, u, tau, J):
 
 
 @given(x=states(), u=wheel_torques(), tau=vectors(3, 1e-3), J=inertias())
+def test_body_rate_matches_paper_eq_11(cfg, x, u, tau, J):
+    """w_dot = J^-1 [-w x (J w + h_W) + T_C + T], h_W = A h (eq. 7), T_C = A u (eq. 12)."""
+    xd = deriv(x, u, tau, body(cfg, J), cfg.wheels)
+    _, w, h = dyn.split(x)
+    A = np.asarray(cfg.wheels.A)
+    expected = np.linalg.solve(J, -np.cross(w, J @ w + A @ h) + A @ u + tau)
+    assert np.allclose(xd[4:7], expected, rtol=1e-10, atol=1e-15)
+
+
+@given(q=quaternions(), w=vectors(3, 0.5))
+def test_quaternion_rate_matches_paper_eq_4(q, w):
+    """Q_dot = 0.5 [Omega'] Q with the paper's Omega' (eq. 4), Q = [q1 q2 q3 q4]."""
+    wx, wy, wz = w
+    Omega = np.array([[0.0, wz, -wy, wx],
+                      [-wz, 0.0, wx, wy],
+                      [wy, -wx, 0.0, wz],
+                      [-wx, -wy, -wz, 0.0]])
+    assert np.allclose(quat.kinematics(q, w), 0.5 * Omega @ q, rtol=0, atol=1e-15)
+
+
+@given(x=states(), u=wheel_torques(), tau=vectors(3, 1e-3), J=inertias())
 def test_inertial_momentum_rate_is_external_torque(cfg, x, u, tau, J):
     """d/dt R(q) (J w + A h) = R(q) tau. Checks the kinematics and dynamics together."""
     b = body(cfg, J)
@@ -49,10 +70,10 @@ def test_inertial_momentum_rate_is_external_torque(cfg, x, u, tau, J):
 
 @given(x=states(), u=wheel_torques(), tau=vectors(3, 1e-3), J=inertias())
 def test_body_energy_rate_is_the_power_of_applied_torques(cfg, x, u, tau, J):
-    """d/dt (w^T J w / 2) = w^T (-A u + tau): the gyroscopic term does no work."""
+    """d/dt (w^T J w / 2) = w^T (A u + tau): the gyroscopic term does no work."""
     xd = deriv(x, u, tau, body(cfg, J), cfg.wheels)
     w, w_dot = x[4:7], xd[4:7]
-    power = w @ (-cfg.wheels.A @ u + tau)
+    power = w @ (cfg.wheels.A @ u + tau)
     assert float(w @ J @ w_dot) == pytest.approx(float(power), rel=1e-9, abs=1e-15)
 
 
@@ -60,7 +81,7 @@ def test_body_energy_rate_is_the_power_of_applied_torques(cfg, x, u, tau, J):
 def test_quaternion_rate_and_wheel_rate(cfg, x, u):
     xd = deriv(x, u, jnp.zeros(3), cfg.body, cfg.wheels)
     assert np.allclose(xd[:4], quat.kinematics(x[:4], x[4:7]), atol=1e-15)
-    assert np.allclose(xd[7:], u, atol=0.0)                  # inside the limits: h_dot = u
+    assert np.allclose(xd[7:], -u, atol=0.0)                 # inside the limits: h_dot = -u
 
 
 def test_euler_equations_by_hand(cfg):
@@ -77,27 +98,27 @@ def test_euler_equations_by_hand(cfg):
 
 @pytest.mark.parametrize("wheel", range(4))
 def test_wheel_torque_reacts_on_the_body(cfg, wheel):
-    """Motor torque u on wheel i puts -u a_i on the body (a_i = spin axis)."""
+    """Wheel torque u on the body (T_w) from wheel i is u a_i (a_i = spin axis)."""
     u = jnp.zeros(4).at[wheel].set(1e-3)
     x = jnp.concatenate([jnp.array([0.0, 0.0, 0.0, 1.0]), jnp.zeros(7)])
     w_dot = deriv(x, u, jnp.zeros(3), cfg.body, cfg.wheels)[4:7]
-    assert np.allclose(cfg.body.J @ w_dot, -1e-3 * cfg.wheels.A[:, wheel], rtol=1e-12)
+    assert np.allclose(cfg.body.J @ w_dot, 1e-3 * cfg.wheels.A[:, wheel], rtol=1e-12)
 
 
 U_MAX, H_MAX = 0.004, 0.015
 LIMIT_CASES = [
-    # u_cmd,   h,       expected
+    # u_cmd,   h,       expected     (h_dot = -u)
     (0.001,    0.0,     0.001),      # inside both limits
     (-0.001,   0.01,    -0.001),
     (0.01,     0.0,     U_MAX),      # torque clipped
     (-0.01,    0.0,     -U_MAX),
-    (0.001,    H_MAX,   0.0),        # exactly at the momentum limit, same direction: blocked
-    (0.001,    0.02,    0.0),        # beyond the limit
-    (0.01,     H_MAX,   0.0),        # clipped, then blocked
-    (-0.001,   -H_MAX,  0.0),
-    (-0.001,   H_MAX,   -0.001),     # opposite direction: allowed (desaturates)
-    (0.001,    -H_MAX,  0.001),
-    (-0.01,    H_MAX,   -U_MAX),
+    (-0.001,   H_MAX,   0.0),        # exactly at the momentum limit, same direction: blocked
+    (-0.001,   0.02,    0.0),        # beyond the limit
+    (-0.01,    H_MAX,   0.0),        # clipped, then blocked
+    (0.001,    -H_MAX,  0.0),
+    (0.001,    H_MAX,   0.001),      # opposite direction: allowed (desaturates)
+    (-0.001,   -H_MAX,  -0.001),
+    (0.01,     H_MAX,   U_MAX),
     (0.0,      H_MAX,   0.0),
 ]
 
@@ -110,9 +131,9 @@ def test_wheel_limits(u_cmd, h, expected):
 
 
 def test_wheel_limits_act_per_wheel(cfg):
-    u_cmd = jnp.array([0.01, 0.001, -0.001, 0.001])
+    u_cmd = jnp.array([0.01, -0.001, 0.001, 0.001])
     h = jnp.array([0.0, H_MAX, H_MAX, 0.0])
-    assert np.array_equal(limit(u_cmd, h, cfg.wheels), [U_MAX, 0.0, -0.001, 0.001])
+    assert np.array_equal(limit(u_cmd, h, cfg.wheels), [U_MAX, 0.0, 0.001, 0.001])
 
 
 def test_body_params_mass_is_not_used_by_the_dynamics(cfg):

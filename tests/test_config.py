@@ -34,8 +34,8 @@ BAD_VALUES = [
     ("body.inertia_kg_m2", [[0.1, 0.0], [0.0, 0.1]], "symmetric"),
     ("body.inertia_kg_m2", [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, -0.1]], "positive definite"),
     ("body.mass_kg", 0.0, "mass_kg must be positive"),
-    ("wheels.skew_angle_from_z_deg", 90.0, "three body axes"),   # all axes in the xy plane
-    ("wheels.skew_angle_from_z_deg", 0.0, "three body axes"),    # all axes along z
+    ("wheels.beta_from_xy_deg", 0.0, "three body axes"),         # all axes in the xy plane
+    ("wheels.beta_from_xy_deg", 90.0, "three body axes"),        # all axes along z
     ("wheels.u_max_Nm", -0.004, "u_max_Nm must be positive"),
     ("wheels.h_max_Nms", 0.0, "h_max_Nms must be positive"),
     ("wheels.rotor_inertia_kg_m2", 0.0, "rotor_inertia_kg_m2 must be positive"),
@@ -95,6 +95,14 @@ def test_wheel_matrix_is_isotropic(cfg):
     assert np.allclose(A @ np.array([1.0, -1.0, 1.0, -1.0]), 0.0, atol=1e-15)   # null space
 
 
+def test_wheel_matrix_is_the_paper_distribution_matrix(cfg):
+    """Eq. (13) with beta = 35.264 deg, theta = 45 deg: every entry is +-sqrt(3)/3."""
+    L = np.sqrt(3) / 3 * np.array([[1.0, -1.0, -1.0, 1.0],
+                                   [1.0, 1.0, -1.0, -1.0],
+                                   [1.0, 1.0, 1.0, 1.0]])
+    assert np.allclose(cfg.wheels.A, L, atol=1e-5)
+
+
 @pytest.mark.parametrize("failed", range(4))
 def test_one_wheel_out_keeps_three_axis_control(cfg, failed):
     A = np.delete(np.asarray(cfg.wheels.A), failed, axis=1)
@@ -102,9 +110,9 @@ def test_one_wheel_out_keeps_three_axis_control(cfg, failed):
     assert np.allclose(sv, [2 / np.sqrt(3), 2 / np.sqrt(3), 1 / np.sqrt(3)], atol=1e-5)
 
 
-@given(skew=st.floats(0.0, 180.0), az=st.lists(st.floats(-360.0, 360.0), min_size=1, max_size=6))
-def test_wheel_axes_are_unit_vectors(skew, az):
-    A = np.asarray(wheel_axes(skew, az))
+@given(beta=st.floats(-90.0, 90.0), az=st.lists(st.floats(-360.0, 360.0), min_size=1, max_size=6))
+def test_wheel_axes_are_unit_vectors(beta, az):
+    A = np.asarray(wheel_axes(beta, az))
     assert A.shape == (3, len(az))
     assert np.allclose(np.linalg.norm(A, axis=0), 1.0)
 

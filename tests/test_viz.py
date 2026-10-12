@@ -48,7 +48,7 @@ def test_time_series_single_run_shows_components(cfg, res):
     assert np.allclose(wheel1.y, 100 * res["h"][:, 0] / float(cfg.wheels.h_max))
     torque = traces(fig, 4)[0]
     assert np.allclose(torque.y, 1e3 * res["u"][:, 0])
-    assert np.allclose(traces(fig, 1)[0].y[-1], 7.849, atol=1e-3)     # degrees
+    assert np.allclose(traces(fig, 1)[0].y[-1], 11.101, atol=1e-3)     # degrees
 
 
 def test_time_series_comparison_shows_one_line_per_run(cfg, res):
@@ -67,7 +67,7 @@ def test_time_series_pointing_mode_uses_arcsec_on_a_log_scale(cfg, res):
     assert fig.layout.yaxis.type == "log"
     error = traces(fig, 1)[0].y
     assert error[-1] == pytest.approx(0.0, abs=1e-6)
-    assert error[0] == pytest.approx(7.849 * 3600, rel=1e-3)
+    assert error[0] == pytest.approx(11.101 * 3600, rel=1e-3)
 
 
 def test_time_series_draws_requirement_limits(cfg, res):

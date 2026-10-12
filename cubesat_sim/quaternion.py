@@ -1,6 +1,7 @@
 """Quaternion functions.
 
 Convention (same as scipy): q = [x, y, z, w], scalar last, unit length.
+This is the paper's Q = [q1 q2 q3 q4] with q1:3 = e sin(a/2), q4 = cos(a/2) (eq. 2).
 q gives the body orientation: v_inertial = R(q) @ v_body.
 """
 import jax.numpy as jnp
@@ -24,7 +25,10 @@ def rotation_matrix(q):
 
 
 def kinematics(q, w_body):
-    """Quaternion rate for a body angular velocity given in the body frame."""
+    """Quaternion rate for a body angular velocity given in the body frame.
+
+    Same as Q_dot = 0.5 [Omega'] Q, eqs. (3)-(4) of the paper.
+    """
     v, s = q[:3], q[3]
     v_dot = 0.5 * (s * w_body + jnp.cross(v, w_body))
     s_dot = -0.5 * (v @ w_body)

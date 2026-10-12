@@ -5,12 +5,16 @@ State x = [q (4), w (3), h (N)]
   w : body angular velocity in the body frame, rad/s
   h : momentum of each wheel about its spin axis, N·m·s
 
-Total angular momentum in the body frame:  H = J w + A h
+Conventions and equation numbers follow Navabi & Hosseini, "Spacecraft quaternion based
+attitude input-output feedback linearization control using reaction wheels":
+J is I_S, A is the distribution matrix L, h is I_W w_W, and u is T_w (eq. 12), the torque
+of each wheel on the body after the limits.
+
+Total angular momentum in the body frame:  H = J w + A h          (6)-(8)
 Equations:
-  q_dot = kinematics(q, w)
-  J w_dot = -w x (J w + A h) - A u + tau_ext
-  h_dot = u
-where u is the motor torque on each wheel after the limits.
+  q_dot = kinematics(q, w)                                       (3)
+  J w_dot = -w x (J w + A h) + A u + tau_ext                     (11), T_C = A u
+  h_dot = -u                                                     (10), T_C = -dh_W/dt
 
 All functions are pure and work under jax.jit, jax.grad and jax.vmap.
 """
@@ -26,8 +30,8 @@ def split(x):
 def limit_wheel_torque(u_cmd, h, wheels):
     """Apply the torque limit and the momentum limit of each wheel."""
     u = jnp.clip(u_cmd, -wheels.u_max, wheels.u_max)
-    # A saturated wheel cannot accept more momentum in the same direction.
-    blocked = (jnp.abs(h) >= wheels.h_max) & (u * h > 0.0)
+    # A saturated wheel cannot accept more momentum in the same direction (h_dot = -u).
+    blocked = (jnp.abs(h) >= wheels.h_max) & (u * h < 0.0)
     return jnp.where(blocked, 0.0, u)
 
 
@@ -36,15 +40,15 @@ def state_derivative(x, u_cmd, tau_ext, body, wheels):
     J, A = body.J, wheels.A
     u = limit_wheel_torque(u_cmd, h, wheels)
     q_dot = quat.kinematics(q, w)
-    w_dot = jnp.linalg.solve(J, -jnp.cross(w, J @ w + A @ h) - A @ u + tau_ext)
-    return jnp.concatenate([q_dot, w_dot, u])
+    w_dot = jnp.linalg.solve(J, -jnp.cross(w, J @ w + A @ h) + A @ u + tau_ext)
+    return jnp.concatenate([q_dot, w_dot, -u])
 
 
 def rk4_step_with_torque(x, u_cmd, tau_ext, dt, body, wheels):
     """One fixed step. The command and the external torque stay constant in the step.
 
     Returns (x_next, u_applied). u_applied is the RK4-weighted mean of the limited wheel
-    torque over the step, so h_next = h + dt * u_applied. It differs from the limited
+    torque over the step, so h_next = h - dt * u_applied. It differs from the limited
     command only in a step where a wheel reaches its momentum limit.
     """
     k1 = state_derivative(x, u_cmd, tau_ext, body, wheels)
@@ -53,7 +57,7 @@ def rk4_step_with_torque(x, u_cmd, tau_ext, dt, body, wheels):
     k4 = state_derivative(x + dt * k3, u_cmd, tau_ext, body, wheels)
     slope = (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
     x_next = x + dt * slope
-    return x_next.at[0:4].set(quat.normalize(x_next[0:4])), slope[7:]
+    return x_next.at[0:4].set(quat.normalize(x_next[0:4])), -slope[7:]
 
 
 def rk4_step(x, u_cmd, tau_ext, dt, body, wheels):

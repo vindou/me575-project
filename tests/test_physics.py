@@ -88,8 +88,11 @@ def test_intermediate_axis_is_unstable(cfg, axis, stable):
 
 
 def test_default_profile_matches_constant_acceleration(cfg):
-    """Body torque tau_x = -2 sin(b) u, so w_x is a triangle and theta = alpha * (10 s)^2."""
-    tau_x = -float(cfg.wheels.A[0, 0] - cfg.wheels.A[0, 2]) * 1e-4
+    """Body torque A u = [-4 cos(b) cos(45 deg) 1e-4, 0, 0], so w_x is a triangle and
+    theta = alpha * (10 s)^2."""
+    tau = np.asarray(cfg.wheels.A @ cfg.open_loop_command[0].u)
+    assert np.allclose(tau[1:], 0.0, atol=1e-18)
+    tau_x = float(tau[0])
     alpha = tau_x / float(cfg.body.J[0, 0])
     res = run(cfg)
     t = np.asarray(res["t"])
@@ -100,7 +103,7 @@ def test_default_profile_matches_constant_acceleration(cfg):
     assert rotvec[0] == pytest.approx(alpha * 100.0, rel=1e-9)
     assert rotvec[0] < 0.0                                  # rotation about -x
     assert np.allclose(rotvec[1:], 0.0, atol=1e-15)
-    assert np.degrees(abs(rotvec[0])) == pytest.approx(7.85, abs=0.01)
+    assert np.degrees(abs(rotvec[0])) == pytest.approx(11.10, abs=0.01)
 
 
 def test_spin_about_principal_axis_gives_expected_angle(cfg):
@@ -144,4 +147,4 @@ def test_null_space_command_spins_wheels_without_moving_the_body(cfg):
     res = run(make(cfg, t_end=20.0), command=lambda t, x: 1e-4 * n)
     assert np.abs(np.asarray(res["w"])).max() < 1e-15
     assert np.allclose(res["q"], res["q"][0], atol=1e-15)
-    assert np.allclose(res["h"], np.outer(res["t"], 1e-4 * n), rtol=1e-12, atol=1e-17)
+    assert np.allclose(res["h"], -np.outer(res["t"], 1e-4 * n), rtol=1e-12, atol=1e-17)

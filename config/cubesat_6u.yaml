@@ -16,9 +16,11 @@ body:
     - [0.0,    0.0,    0.0458]
 
 wheels:
-  # Spin axis i = [sin(b)cos(az_i), sin(b)sin(az_i), cos(b)], b measured from body +z.
-  skew_angle_from_z_deg: 54.7356     # gives A A^T = (4/3) I  [CALC]
-  azimuth_deg: [0.0, 90.0, 180.0, 270.0]
+  # Pyramid of Navabi & Hosseini, eq. (13): spin axis i =
+  # [cos(b)cos(az_i), cos(b)sin(az_i), sin(b)], b measured from the body xy plane.
+  beta_from_xy_deg: 35.2644          # paper's beta; gives A A^T = (4/3) I  [CALC]
+  azimuth_deg: [45.0, 135.0, 225.0, 315.0]   # paper's theta = 45 deg, then +90 deg per wheel
+  # Wheel torque u is the paper's T_w: torque of each wheel on the body (T_C = A u).
   u_max_Nm: 0.004                    # BCT RWp015 peak torque [NASA-SoA]
   h_max_Nms: 0.015                   # BCT RWp015 momentum capacity [NASA-SoA]
   # Used only to convert momentum to wheel speed (for logs and visualization).
@@ -34,11 +36,11 @@ sim:
 
 # Open-loop wheel torque commands. A controller will replace this section later.
 # Outside all segments, the command is zero.
-# Default: a rest-to-rest rotation of approximately 7.85 deg about body -x
-# (body torque = -A u = [-1.63e-4, 0, 0] N·m, then the reverse).
+# Default: a rest-to-rest rotation of approximately 11.10 deg about body -x
+# (body torque = A u = [-2.31e-4, 0, 0] N·m, then the reverse).
 open_loop_command:
-  - {t_start_s: 5.0,  t_end_s: 15.0, u_Nm: [ 0.0001, 0.0, -0.0001, 0.0]}
-  - {t_start_s: 15.0, t_end_s: 25.0, u_Nm: [-0.0001, 0.0,  0.0001, 0.0]}
+  - {t_start_s: 5.0,  t_end_s: 15.0, u_Nm: [-0.0001,  0.0001,  0.0001, -0.0001]}
+  - {t_start_s: 15.0, t_end_s: 25.0, u_Nm: [ 0.0001, -0.0001, -0.0001,  0.0001]}
 
 # Proposed project requirements (research.md, "Recommended project requirements").
 # The dynamics do not read this section. The plots draw these limits, and the controller

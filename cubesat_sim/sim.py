@@ -54,12 +54,13 @@ def simulate(body, wheels, x0, dt, steps, command, external_torque=zero_torque):
 
     body, wheels, x0 : may be traced (differentiable).
     dt, steps        : Python numbers (they set the loop length).
-    command(t, x)         -> wheel torque command, N elements. Must be JAX-traceable.
+    command(t, x)         -> wheel torque command T_w (torque of each wheel on the body),
+                             N elements. Must be JAX-traceable.
     external_torque(t, x) -> body torque, 3 elements. Must be JAX-traceable.
     Both are evaluated at the start of each step and held for the step.
 
     Returns a dict of arrays, one row per time t[k]: t, q, w, h, u, wheel_speed, H_inertial.
-    u[k] is the wheel torque applied over [t[k], t[k+1]], so h[k+1] = h[k] + dt * u[k].
+    u[k] is the wheel torque applied over [t[k], t[k+1]], so h[k+1] = h[k] - dt * u[k].
     The last row of u is the limited command at the final state.
     """
     t = jnp.arange(steps + 1) * dt
