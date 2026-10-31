@@ -147,6 +147,11 @@ def time_series(runs, cfg, q_target=None, height=900):
 
     if pointing:
         fig.update_yaxes(type="log", row=1, col=1)
+        # Log-axis annotations use log10 coordinates; shape positions use data values.
+        # Keeping a threshold label at y=60 would otherwise stretch the axis to 1e60.
+        for annotation in fig.layout.annotations:
+            if annotation.yref == "y" and annotation.y is not None:
+                annotation.y = float(np.log10(annotation.y))
     fig.update_xaxes(title_text="Time [s]", row=4, col=1)
 
     # One legend per plot for a single run; one shared legend for several runs.

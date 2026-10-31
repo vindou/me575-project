@@ -1,0 +1,11 @@
+# Absolute target attitude: 60 deg about [1,-2,3], not Euler angles.
+target:
+  axis:
+  - 1
+  - -2
+  - 3
+  angle_deg: 60.0
+controllers:
+  pd:
+    wn_rad_s: 0.02
+    zeta: 1.0

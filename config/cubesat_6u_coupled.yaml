@@ -1,0 +1,69 @@
+# Coupled rigid-body test scenario; all changes below are project assumptions.
+# The same principal inertias are rotated into body axes with fixed xyz angles [15,-20,25] deg.
+# J is constant during the run. Nonzero initial body and wheel momentum activates gyroscopic coupling.
+# Initial attitude: 20 deg about [1,1,-1]. Initial body rates: [0.2,-0.15,0.1] deg/s.
+# No external disturbances, sensor noise, flexible modes, or inertia uncertainty are added.
+body:
+  mass_kg: 11.0
+  inertia_kg_m2:
+  - - 0.10998845397651129
+    - 0.006037129076301163
+    - 0.01592738732410659
+  - - 0.006037129076301166
+    - 0.0896103336648298
+    - 0.019324756797874466
+  - - 0.01592738732410659
+    - 0.019324756797874463
+    - 0.05710121235865875
+wheels:
+  beta_from_xy_deg: 35.2644
+  azimuth_deg:
+  - 45.0
+  - 135.0
+  - 225.0
+  - 315.0
+  u_max_Nm: 0.004
+  h_max_Nms: 0.015
+  rotor_inertia_kg_m2: 2.39e-05
+sim:
+  dt_s: 0.01
+  t_end_s: 600.0
+  q0:
+  - 0.10025582212029019
+  - 0.10025582212029019
+  - -0.10025582212029019
+  - 0.984807753012208
+  w0_rad_s:
+  - 0.003490658503988659
+  - -0.002617993877991494
+  - 0.0017453292519943296
+  h0_Nms:
+  - 0.002
+  - -0.001
+  - 0.0015
+  - -0.0005
+open_loop_command: []
+requirements:
+  pointing_error_arcsec_rms: 30.0
+  pointing_error_arcsec_3sigma: 60.0
+  settle_band_arcsec: 60.0
+  settle_rate_deg_s: 0.01
+  settle_time_s: 30.0
+  max_slew_rate_deg_s: 0.5
+  wheel_momentum_warning_frac: 0.8
+visualization:
+  body_size_m:
+  - 0.1
+  - 0.2
+  - 0.3
+  wheel_cluster_center_m:
+  - 0.0
+  - 0.0
+  - -0.08
+  wheel_offset_m: 0.03
+  wheel_radius_m: 0.02
+  wheel_thickness_m: 0.01
+  axis_length_m: 0.25
+  fps: 30
+  playback_speed: 10.0
+  trail_length_s: 10.0

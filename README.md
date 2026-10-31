@@ -1,21 +1,89 @@
-# CubeSat attitude forward dynamics (Level 1)
+# CubeSat attitude simulation
 
-A rigid 6U CubeSat with four reaction wheels. This package contains the plant model only.
-It has no controller, no disturbances, and no sensors.
+A rigid 6U CubeSat with four reaction wheels, a nonlinear plant, and a fixed-target PD
+controller. The default simulations have no external disturbances or sensor models.
 
 ## Use
 
     python3 -m venv .venv && source .venv/bin/activate
     pip install -r requirements.txt
-    python run_sim.py                 # uses config/cubesat_6u.yaml, writes results/
+    python run_sim.py --controller pd # uses the PD settings and a new results/pd/<timestamp>/ folder
+    python run_sim.py --controller open_loop # uses the plant file's torque profile
     python -m pytest                  # verification checks (about 20 s)
     python -m pytest -m slow          # also the long-horizon run and the notebook
     marimo edit notebooks/explore.py  # run scenarios: plots and 3D animation
     marimo edit notebooks/view_run.py # plots and 3D animation of saved runs
 
+On Windows, use `.venv\Scripts\python.exe` instead of `python` to use the project environment.
+
+## Selecting and configuring controllers
+
+`run_sim.py` defaults to `pd`. Set the absolute target axis/angle and each method's
+parameters in `config/control/controllers.yaml`. PD now accepts scalar `wn_rad_s`
+and `zeta` and computes `Kp = wn_rad_s**2 * J` and `Kd = 2*zeta*wn_rad_s * J` once
+from the selected plant, including off-diagonal inertia terms. `J` remains constant
+during each run. This is local small-angle tuning, not a guarantee of a given
+settling time, slew-rate bound, or global nonlinear performance. To use manual
+3x3 `Kp` and `Kd` instead, supply both and omit `wn_rad_s` and `zeta`.
+The actual resolved gain matrices are saved in `controller_used.yaml`.
+Plant initial conditions and duration remain in `config/cubesat_6u.yaml`.
+
+    python run_sim.py --controller pd
+    python run_sim.py config/cubesat_6u.yaml results/my_pd_run --controller pd
+    python run_sim.py --controller pd --control-config config/control/controllers.yaml
+
+Each run saves `run.npz`, `config_used.yaml`, and `controller_used.yaml`, including the
+selected controller, target quaternion, and parameters. Without an output argument,
+runs get separate timestamped folders. An explicitly reused output folder overwrites
+the corresponding files. The runner prints final pointing error for closed-loop runs.
+The saved-run notebook currently plots rotation from the initial attitude; target-error
+plots require passing the saved target to `viz.time_series(..., q_target=...)`.
+
+### Coupled PD experiment
+
+`config/cubesat_6u_coupled.yaml` is an assumed test scenario with a constant
+non-diagonal inertia, a nonidentity initial attitude, initial body rate, and wheel
+momentum. It uses the existing nonlinear rigid-body equations; it does not add
+flexibility, environment torques, sensor noise, or model uncertainty. Both control
+files below specify the same absolute 60-degree target about `[1,-2,3]` and use
+600 seconds of simulation. The initial target error is about 73.88 degrees.
+
+    python run_sim.py config/cubesat_6u_coupled.yaml --controller pd --control-config config/control/coupled_fast.yaml
+    python run_sim.py config/cubesat_6u_coupled.yaml --controller pd --control-config config/control/coupled_slow.yaml
+
+The fast file uses `wn_rad_s: 0.2`; the slow file uses `0.02`. Both use `zeta: 1.0`.
+Reducing wn also reduces damping gain and can expose gyroscopic effects from
+nonzero total angular momentum. Neither gain setting is a hard rate limiter.
+The 0.5 deg/s rate threshold and 60 arcsec pointing band are project assumptions,
+not validated mission requirements or claims from the reference paper.
+
+`analyze_pd_study.py STUDY_FOLDER` reads saved `fast` and `slow` subfolders (and
+optional `nominal` and `diagnostic_zero_momentum` subfolders), writes `metrics.yaml`,
+and creates `comparison.html` with actual target-error curves and 3D animations.
+Settling there is measured from command application, requiring the sampled error
+and rate to remain within their bands through the run end with a ten-second
+observed hold. It does not validate the proposed twenty-minute pointing hold.
+
+To add a controller without editing the runner:
+
+1. Write a factory in `cubesat_sim/controller.py`, such as
+   `my_controller(cfg, q_target, gain)`, returning `command(t, x)`.
+2. Add `"my_method": my_controller` to `CONTROLLERS` at the bottom of that file.
+3. Add `my_method: {gain: ...}` under `controllers` in the control settings file.
+4. Run `python run_sim.py --controller my_method`.
+
+Every command must use JAX-compatible operations and return four wheel torque commands.
+Its state is `x = [q (4), omega (3), h (4)]`, with angular velocity in rad/s. Factories may
+accept different named parameters; the runner forwards only the selected method's
+settings. The current interface supports stateless feedback; controllers with integral
+or other persistent state require extending the simulation state. The explorer notebook's
+`COMMANDS` registry is separate and still requires registering interactive methods there.
+
 ## Files
 
 - `config/cubesat_6u.yaml`: all parameters, with a source tag for each value.
+- `config/control/controllers.yaml`: fixed target and controller-specific parameters.
+- `cubesat_sim/controller.py`: controller factories and the runner's `CONTROLLERS` registry.
 - `cubesat_sim/config.py`: loads and checks the file, builds the wheel matrix A.
 - `cubesat_sim/dynamics.py`: equations of motion, wheel limits, RK4 step.
 - `cubesat_sim/quaternion.py`: quaternion functions.

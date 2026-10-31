@@ -1,0 +1,14 @@
+# The target is an absolute body-to-inertial attitude, not an incremental turn.
+# The axis is normalized by the runner. The angle is in degrees.
+target:
+  axis: [0.0, 0.0, 1.0]
+  angle_deg: 50.0
+
+# Names must match CONTROLLERS in cubesat_sim/controller.py.
+# Parameter names must match the corresponding factory's arguments.
+controllers:
+  pd:
+    # Recompute Kp = wn_rad_s**2 * J and Kd = 2*zeta*wn_rad_s * J at startup.
+    # This local design does not automatically enforce slew-rate or wheel limits.
+    wn_rad_s: 0.2
+    zeta: 1.0

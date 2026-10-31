@@ -50,3 +50,17 @@ def angle_between(q_a, q_b):
     v2 = v @ v
     v_norm = jnp.where(v2 > 0.0, jnp.sqrt(jnp.where(v2 > 0.0, v2, 1.0)), 0.0)
     return 2.0 * jnp.arctan2(v_norm, jnp.abs(s))
+
+def conjugate(q):
+    """Return [-v, s] for a scalar-last quaternion q = [v, s]."""
+    v, s = q[:3], q[3]
+    return jnp.append(-v, s)
+
+def quarternion_product(qa, qb):
+    """Return the Hamilton product qa ⊗ qb for scalar-last quaternions."""
+    va, sa = qa[:3], qa[3]
+    vb, sb = qb[:3], qb[3]
+    
+    v = sa*vb + sb*va + jnp.cross(va, vb)
+    s = sa*sb - va@vb
+    return jnp.append(v, s)
