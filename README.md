@@ -57,13 +57,6 @@ nonzero total angular momentum. Neither gain setting is a hard rate limiter.
 The 0.5 deg/s rate threshold and 60 arcsec pointing band are project assumptions,
 not validated mission requirements or claims from the reference paper.
 
-`analyze_pd_study.py STUDY_FOLDER` reads saved `fast` and `slow` subfolders (and
-optional `nominal` and `diagnostic_zero_momentum` subfolders), writes `metrics.yaml`,
-and creates `comparison.html` with actual target-error curves and 3D animations.
-Settling there is measured from command application, requiring the sampled error
-and rate to remain within their bands through the run end with a ten-second
-observed hold. It does not validate the proposed twenty-minute pointing hold.
-
 To add a controller without editing the runner:
 
 1. Write a factory in `cubesat_sim/controller.py`, such as
