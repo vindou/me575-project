@@ -1,8 +1,11 @@
 """Simulation loop: propagate the initial conditions through time.
 
-simulate() is a pure function built on jax.lax.scan. Call it inside your own
-jax.jit / jax.grad / jax.vmap to differentiate through a whole run or to batch runs.
-run() is the convenience wrapper: it compiles simulate() for one config.
+simulate_plant() is the plant-agnostic core: a jax.lax.scan over a plant step function
+with a stateless or stateful command. simulate() and run() are the attitude wrappers;
+thruster1d.py has the wrappers for the 1D thruster.
+
+simulate() is a pure function. Call it inside your own jax.jit / jax.grad / jax.vmap to
+differentiate through a whole run or to batch runs. run() compiles simulate() for one config.
 """
 import jax
 import jax.numpy as jnp
@@ -49,25 +52,21 @@ def open_loop_command(cfg):
     return OpenLoopCommand(cfg.open_loop_command, cfg.wheels.count)
 
 
-def simulate(body, wheels, x0, dt, steps, command, external_torque=zero_torque):
-    """Propagate x0 through `steps` RK4 steps of size dt.
+def simulate_plant(step, limit, observe, x0, dt, steps, command):
+    """Propagate x0 through `steps` steps of size dt with a plant and a command.
 
-    body, wheels, x0 : may be traced (differentiable).
-    dt, steps        : Python numbers (they set the loop length).
-    command(t, x)         -> wheel torque command T_w (torque of each wheel on the body),
-                             N elements. Must be JAX-traceable.
-        A stateful command (for example MPC with warm starts) instead has an `init_state`
-        attribute (a JAX pytree) and is called as command(t, x, state) -> (u, new_state).
-        The state is carried from one step to the next and is not returned.
-    external_torque(t, x) -> body torque, 3 elements. Must be JAX-traceable.
-    Both are evaluated at the start of each step and held for the step.
+    step(t, x, u_cmd)  -> (x_next, u_applied): one plant step; the plant applies its limits.
+    limit(t, x, u_cmd) -> u_applied: the limited command at a state (used for the last row).
+    observe(t, x)      -> dict of extra outputs at the start of each step (may be empty).
+    command(t, x) -> u_cmd, or a stateful command with an `init_state` attribute (a JAX
+        pytree) called as command(t, x, state) -> (u_cmd, new_state). The state is carried
+        from one step to the next and is not returned. The command is evaluated at the
+        start of each step and held for the step.
 
-    Returns a dict of arrays, one row per time t[k]: t, q, w, h, u, wheel_speed, H_inertial.
-    u[k] is the wheel torque applied over [t[k], t[k+1]], so h[k+1] = h[k] - dt * u[k].
-    The last row of u is the limited command at the final state.
+    Returns (t, X, U_cmd, U, obs): one row per time t[k]. U[k] is applied over
+    [t[k], t[k+1]]; the last rows of U_cmd and U are the command at the final state.
     """
     t = jnp.arange(steps + 1) * dt
-
     stateful = hasattr(command, "init_state")
 
     def evaluate(tk, xk, ck):
@@ -77,19 +76,54 @@ def simulate(body, wheels, x0, dt, steps, command, external_torque=zero_torque):
             u_cmd = command(tk, xk)
         return jnp.asarray(u_cmd, dtype=xk.dtype), ck
 
-    def step(carry, tk):
+    def scan_step(carry, tk):
         xk, ck = carry
         u_cmd, ck = evaluate(tk, xk, ck)
-        x_next, u = dyn.rk4_step_with_torque(xk, u_cmd, external_torque(tk, xk), dt,
-                                             body, wheels)
-        return (x_next, ck), (xk, u, dyn.momentum_inertial(xk, body, wheels))
+        x_next, u = step(tk, xk, u_cmd)
+        return (x_next, ck), (xk, u_cmd, u, observe(tk, xk))
 
     c0 = command.init_state if stateful else None
-    (x_last, c_last), (X, U, H) = jax.lax.scan(step, (x0, c0), t[:-1])
-    u_last = dyn.limit_wheel_torque(evaluate(t[-1], x_last, c_last)[0], x_last[7:], wheels)
-    X = jnp.concatenate([X, x_last[None]])
-    U = jnp.concatenate([U, u_last[None]])
-    H = jnp.concatenate([H, dyn.momentum_inertial(x_last, body, wheels)[None]])
+    (x_last, c_last), (X, U_cmd, U, obs) = jax.lax.scan(scan_step, (x0, c0), t[:-1])
+    u_cmd_last = evaluate(t[-1], x_last, c_last)[0]
+    u_last = limit(t[-1], x_last, u_cmd_last)
+    obs_last = observe(t[-1], x_last)
+
+    def append(rows, last):
+        return jnp.concatenate([rows, last[None]])
+
+    X, U_cmd, U = append(X, x_last), append(U_cmd, u_cmd_last), append(U, u_last)
+    obs = jax.tree_util.tree_map(append, obs, obs_last)
+    return t, X, U_cmd, U, obs
+
+
+def simulate(body, wheels, x0, dt, steps, command, external_torque=zero_torque):
+    """Propagate x0 through `steps` RK4 steps of size dt.
+
+    body, wheels, x0 : may be traced (differentiable).
+    dt, steps        : Python numbers (they set the loop length).
+    command(t, x)         -> wheel torque command T_w (torque of each wheel on the body),
+                             N elements. Must be JAX-traceable.
+        A stateful command (for example MPC with warm starts) instead has an `init_state`
+        attribute and is called as command(t, x, state) -> (u, new_state); see
+        simulate_plant.
+    external_torque(t, x) -> body torque, 3 elements. Must be JAX-traceable.
+    Both are evaluated at the start of each step and held for the step.
+
+    Returns a dict of arrays, one row per time t[k]: t, q, w, h, u, wheel_speed, H_inertial.
+    u[k] is the wheel torque applied over [t[k], t[k+1]], so h[k+1] = h[k] - dt * u[k].
+    The last row of u is the limited command at the final state.
+    """
+    def step(tk, xk, u_cmd):
+        return dyn.rk4_step_with_torque(xk, u_cmd, external_torque(tk, xk), dt, body, wheels)
+
+    def limit(tk, xk, u_cmd):
+        return dyn.limit_wheel_torque(u_cmd, xk[7:], wheels)
+
+    def observe(tk, xk):
+        return {"H": dyn.momentum_inertial(xk, body, wheels)}
+
+    t, X, _, U, obs = simulate_plant(step, limit, observe, x0, dt, steps, command)
+    H = obs["H"]
 
     return {"t": t, "q": X[:, 0:4], "w": X[:, 4:7], "h": X[:, 7:], "u": U,
             "wheel_speed": X[:, 7:] / wheels.rotor_inertia, "H_inertial": H}

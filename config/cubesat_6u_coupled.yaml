@@ -3,6 +3,7 @@
 # J is constant during the run. Nonzero initial body and wheel momentum activates gyroscopic coupling.
 # Initial attitude: 20 deg about [1,1,-1]. Initial body rates: [0.2,-0.15,0.1] deg/s.
 # No external disturbances, sensor noise, flexible modes, or inertia uncertainty are added.
+model: attitude
 body:
   mass_kg: 11.0
   inertia_kg_m2:

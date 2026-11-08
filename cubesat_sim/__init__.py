@@ -5,7 +5,9 @@ import jax
 # arcseconds are below float32 resolution of a quaternion.
 jax.config.update("jax_enable_x64", True)
 
-from .config import load_config  # noqa: E402
+from .config import load_config, load_plant, load_thruster_config  # noqa: E402
 from .sim import run, simulate  # noqa: E402
+from .thruster1d import run_thruster  # noqa: E402
 
-__all__ = ["load_config", "run", "simulate"]
+__all__ = ["load_config", "load_plant", "load_thruster_config", "run", "run_thruster",
+           "simulate"]

@@ -1,0 +1,13 @@
+# Setpoint and controller settings for the 1D thruster plant (config/thruster_1d.yaml).
+# Names must match THRUSTER_CONTROLLERS in cubesat_sim/thruster_control.py.
+target:
+  x_ref_m: 1.0           # absolute position setpoint [ASSUMPTION]
+
+controllers:
+  pid:
+    # Automatic gains: all three poles of the unsaturated loop at s = -pole_rad_s,
+    # Kp = 3 m p^2, Ki = m p^3, Kd = 3 m p. The plant cannot brake and saturates at
+    # [0, F_max], so this linear design overshoots more than it would on a linear plant.
+    # For manual gains, give Kp, Ki and Kd and remove pole_rad_s.
+    pole_rad_s: 0.05
+    anti_windup: true

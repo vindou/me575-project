@@ -360,3 +360,37 @@ def attitude_animation(res, cfg, q_target=None, max_frames=600, height=700):
                              for f, k in enumerate(idx)])],
     )
     return fig
+
+
+# --- 1D thruster -----------------------------------------------------------------------
+
+def thruster_time_series(runs, x_ref=None, height=700):
+    """Position x(t), velocity v(t) and duty cycle D(t) of one thruster run or several.
+
+    runs  : a result dict from thruster1d.run_thruster, or {name: result dict}.
+    x_ref : setpoint drawn on the position plot, if given.
+    """
+    if "t" in runs:
+        runs = {"run": runs}
+    runs = {name: _numpy(r) for name, r in runs.items()}
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06,
+                        subplot_titles=("Position x [m]", "Velocity v [m/s]",
+                                        "Duty cycle D"))
+    for n, (name, r) in enumerate(runs.items()):
+        color = RUN_COLORS[n % len(RUN_COLORS)]
+        stride = max(1, len(r["t"]) // MAX_POINTS)
+        for row, key in enumerate(("x", "v", "D"), start=1):
+            fig.add_trace(go.Scatter(
+                x=r["t"][::stride], y=r[key][::stride], name=name, mode="lines",
+                line=dict(color=color, width=1.6, shape="hv" if key == "D" else None),
+                legendgroup=name, showlegend=row == 1), row=row, col=1)
+    if x_ref is not None:
+        fig.add_hline(y=float(x_ref), row=1, col=1, line=LIMIT, annotation_text="x_ref",
+                      annotation_position="top left", annotation_font_size=10)
+    for y in (0.0, 1.0):
+        fig.add_hline(y=y, row=3, col=1, line=LIMIT)
+    fig.update_yaxes(range=[-0.05, 1.05], row=3, col=1)
+    fig.update_xaxes(title_text="Time [s]", row=3, col=1)
+    fig.update_layout(height=height, template="plotly_white", hovermode="x unified",
+                      margin=dict(l=60, r=20, t=40, b=40))
+    return fig

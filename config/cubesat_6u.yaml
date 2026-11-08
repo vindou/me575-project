@@ -6,6 +6,9 @@
 #   [CALC]       Calculated from the stated assumptions
 #   [ASSUMPTION] Project assumption. Not from a source. Confirm before the report.
 
+# Plant model (attitude or thruster_1d). Missing means attitude.
+model: attitude
+
 body:
   mass_kg: 11.0                      # midpoint of the 10 kg to 12 kg range
   # Uniform box of 0.10 m x 0.20 m x 0.30 m at 11 kg. [CALC]

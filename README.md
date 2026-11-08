@@ -2,6 +2,8 @@
 
 A rigid 6U CubeSat with four reaction wheels, a nonlinear plant, and fixed-target PD,
 nonlinear MPC and MPPI controllers. The default simulations have no external disturbances or sensor models.
+A second plant, a 1D one-directional thruster with a PID controller, is described in
+[1D thruster plant](#1d-thruster-plant).
 
 ## Use
 
@@ -9,6 +11,7 @@ nonlinear MPC and MPPI controllers. The default simulations have no external dis
     pip install -r requirements.txt
     python run_sim.py --controller pd # uses the PD settings and a new results/pd/<timestamp>/ folder
     python run_sim.py --controller open_loop # uses the plant file's torque profile
+    python run_sim.py config/thruster_1d.yaml --controller pid   # 1D thruster plant
     python -m pytest                  # verification checks (about 20 s)
     python -m pytest -m slow          # also the long-horizon run and the notebook
     marimo edit notebooks/explore.py  # run scenarios: plots and 3D animation
@@ -115,6 +118,74 @@ settings. A controller with persistent state (integral terms, warm starts) inste
 the simulator carries the state between steps. MPC and MPPI use this interface. The explorer notebook's
 `COMMANDS` registry is separate and still requires registering interactive methods there.
 
+## 1D thruster plant
+
+The `model:` key in a plant config selects the plant: `attitude` (the CubeSat files; also
+the default when the key is missing) or `thruster_1d`. `run_sim.py` offers only the
+controllers registered for the selected model (`CONTROLLERS_BY_MODEL` in
+`cubesat_sim/controller.py`): `open_loop`, `pd`, `mpc`, `mppi` for attitude, `pid` for the
+thruster. The default controller is `pd` or `pid`, and the default control file is
+`config/control/controllers.yaml` or `config/control/thruster_pid.yaml`. Without an output
+folder, thruster runs go to `results/thruster_1d/<controller>/<timestamp>/`.
+
+    python run_sim.py config/thruster_1d.yaml --controller pid
+    python run_sim.py config/thruster_1d.yaml results/my_pid --control-config config/control/thruster_pid.yaml
+
+Model (`cubesat_sim/thruster1d.py`), state `x = [position, velocity]`:
+
+    m * x_ddot = F_avg + F_d,   D = sat(u / F_max, 0, 1),   F_avg = D * F_max
+
+The command is the requested force `u` (N); the plant applies the `[0, F_max]` limit and
+reports `F_cmd`, `F` (applied), `D` and `F_d` per step. Throttle is continuous, not on/off.
+
+**One direction only.** The thruster pushes in +x and cannot brake (in the full system the
+reaction wheels point it). Only a negative `F_d` slows the mass. With `F_d = 0`, any
+overshoot is permanent, and a setpoint can be held only by arriving with zero velocity.
+The default file uses `F_d_N: -0.01` so the PID can hold `x_ref` at `D = 0.1`.
+
+Plant file `config/thruster_1d.yaml` (all placeholder values are tagged `[ASSUMPTION]`):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `model` | `thruster_1d` | plant selection |
+| `mass_kg` | 11.0 | moving mass (same as the 6U CubeSat) |
+| `F_max_N` | 0.1 | thrust at `D = 1` (small cold-gas class) |
+| `x0_m`, `v0_m_s` | 0.0, 0.0 | initial position and velocity |
+| `dt_s`, `t_end_s` | 0.05, 300.0 | step and duration; `t_end_s` a whole multiple of `dt_s` |
+| `disturbance.F_d_N` | -0.01 | constant external force |
+| `disturbance.segments` | one pulse | optional `{t_start_s, t_end_s, F_N}` additions, active for `t_start_s <= t < t_end_s` |
+
+The default pulse (-0.02 N from 200 s to 210 s) shows disturbance rejection during the hold.
+The loader checks positive mass and `F_max`, finite values, `t_end` a multiple of `dt`, and
+`t_start < t_end`. The disturbance becomes a hashable `DisturbanceProfile`, so repeated runs
+with an equal profile reuse the compiled code.
+
+PID (`cubesat_sim/thruster_control.py`), set in `config/control/thruster_pid.yaml`:
+`target.x_ref_m` is the setpoint; `u = Kp e + Ki ∫e dt + Kd e_dot` with `e = x_ref - x` and
+`e_dot = -v` (fixed setpoint, so no numerical differentiation). The integral is the
+controller's carried state. Gains come from `pole_rad_s` (all three linear closed-loop poles
+at `-p`: `Kp = 3 m p^2`, `Ki = m p^3`, `Kd = 3 m p`) or from manual `Kp`, `Ki`, `Kd`. The
+resolved gains are saved in `controller_used.yaml`. Anti-windup (`anti_windup: true`)
+stops the integration while `D = 1` with `e > 0` or `D = 0` with `e < 0`.
+
+The linear pole design ignores the saturation and the missing braking, so larger or faster
+moves overshoot more than they would on a linear plant: with the defaults (`x_ref = 1 m`,
+`p = 0.05`) the overshoot is about 0.2 m. `p = 0.02` does not overshoot but takes several
+hundred seconds. The runner prints final position error, overshoot, peak speed, time at
+`D = 1` and at `D = 0`, and total thrust impulse.
+
+`viz.thruster_time_series(res, x_ref=...)` plots x(t), v(t) and D(t) for one run or a
+`{name: res}` dict. The 3D attitude animation and `viz.time_series` do not apply, and the
+`view_run` notebook skips thruster runs. Load a thruster run by hand:
+
+    import numpy as np; from cubesat_sim import viz
+    res = dict(np.load("results/thruster_1d/pid/<timestamp>/run.npz"))
+    viz.thruster_time_series(res, x_ref=1.0).show()
+
+The simulation core `sim.simulate_plant(step, limit, observe, x0, dt, steps, command)` is
+shared by both plants; `simulate()`/`run()` (attitude) and
+`thruster1d.simulate_thruster()`/`run_thruster()` are thin wrappers around it.
+
 ## Files
 
 - `config/cubesat_6u.yaml`: all parameters, with a source tag for each value.
@@ -127,7 +198,10 @@ the simulator carries the state between steps. MPC and MPPI use this interface. 
 - `cubesat_sim/dynamics.py`: equations of motion, wheel limits, RK4 step.
 - `cubesat_sim/quaternion.py`: quaternion functions.
 - `cubesat_sim/sim.py`: simulation loop (`jax.lax.scan`), `simulate()` and `run()`.
-- `cubesat_sim/viz.py`: Plotly time series (with requirement limits) and 3D animation.
+- `cubesat_sim/viz.py`: Plotly time series (with requirement limits), 3D animation, thruster plot.
+- `cubesat_sim/thruster1d.py`: 1D thruster plant, disturbance profile, `run_thruster()`.
+- `cubesat_sim/thruster_control.py`: thruster PID and the `THRUSTER_CONTROLLERS` registry.
+- `config/thruster_1d.yaml`, `config/control/thruster_pid.yaml`: thruster plant and PID settings.
 - `notebooks/explore.py`: marimo notebook to run scenarios and compare command laws.
 - `notebooks/view_run.py`: marimo notebook to view and compare runs saved by `run_sim.py`.
 
@@ -169,6 +243,8 @@ Code symbols map to the paper as `J` = I_S, `A` = L, `h` = I_W ω_W, `u` = T_w.
 - `test_viz.py`: the figures draw what the simulation computed (axes, momentum, limits).
 - `test_horizon_controllers.py`: the stateful command interface; MPC and MPPI convergence,
   torque hold, soft rate limit, MPPI null-space drift and seeding, parameter checks.
+- `test_thruster1d.py`: thruster closed form, limits, disturbance windows, anti-windup
+  contrast, settling, config checks, registries and runner.
 - `test_regression.py`: three runs against `tests/data/golden_runs.npz`. After an intended
   model change: `REGENERATE_GOLDEN=1 python -m pytest tests/test_regression.py`.
 

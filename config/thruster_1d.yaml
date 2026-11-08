@@ -1,0 +1,27 @@
+# 1D thruster plant: m * x_ddot = F_avg + F_d, with F_avg = D * F_max, D = sat(u / F_max, 0, 1).
+# The thruster pushes in +x only, so the plant cannot brake: only a negative F_d slows it.
+# All values are in SI units.
+#
+# Source tags:
+#   [ASSUMPTION] Placeholder project value. Not from a source. Confirm before the report.
+
+model: thruster_1d
+
+mass_kg: 11.0          # same mass as the 6U CubeSat in cubesat_6u.yaml [ASSUMPTION]
+F_max_N: 0.1           # small cold-gas thruster class, 100 mN at D = 1 [ASSUMPTION]
+
+x0_m: 0.0              # initial position [ASSUMPTION]
+v0_m_s: 0.0            # initial velocity [ASSUMPTION]
+
+dt_s: 0.05
+t_end_s: 300.0
+
+disturbance:
+  # Constant opposing force. With F_d = 0 nothing slows the mass after an overshoot, so a
+  # setpoint can only be held by arriving with zero velocity. -10 mN lets the PID hold
+  # x_ref at D = 0.1 and recover from small overshoots. [ASSUMPTION]
+  F_d_N: -0.01
+  # Optional piecewise-constant additions, active for t_start_s <= t < t_end_s.
+  # This pulse pushes the mass back during the hold to show disturbance rejection. [ASSUMPTION]
+  segments:
+    - {t_start_s: 200.0, t_end_s: 210.0, F_N: -0.02}

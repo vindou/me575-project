@@ -18,8 +18,11 @@ def _():
 
     import numpy as np
 
+    import yaml
+
     from cubesat_sim import load_config, viz
-    return Path, ROOT, load_config, mo, np, viz
+    from cubesat_sim.config import plant_model
+    return Path, ROOT, load_config, mo, np, plant_model, viz, yaml
 
 
 @app.cell
@@ -42,7 +45,7 @@ def _(mo):
 
 
 @app.cell
-def _(Path, ROOT, folder, mo):
+def _(Path, ROOT, folder, mo, plant_model, yaml):
     def _resolve(text):
         p = Path(text).expanduser()
         if p.is_absolute() or p.exists():
@@ -50,9 +53,18 @@ def _(Path, ROOT, folder, mo):
         return (ROOT / p).resolve()               # relative to the project
 
     base = _resolve(folder.value)
-    found = sorted({p.parent for p in base.rglob("run.npz")}) if base.is_dir() else []
+    def _is_attitude(run_dir):
+        # Thruster runs (model: thruster_1d) are saved in the same tree; skip them here.
+        try:
+            raw = yaml.safe_load((run_dir / "config_used.yaml").read_text())
+            return plant_model(raw) == "attitude"
+        except (OSError, ValueError, yaml.YAMLError):
+            return False
+
+    found = sorted({p.parent for p in base.rglob("run.npz")
+                    if _is_attitude(p.parent)}) if base.is_dir() else []
     mo.stop(not found, mo.callout(
-        f"No `run.npz` under `{base}`. Run `python run_sim.py` first, or change the folder.",
+        f"No attitude `run.npz` under `{base}`. Run `python run_sim.py` first, or change the folder.",
         kind="warn"))
     run_names = {str(p.relative_to(base)) if p != base else p.name: p for p in found}
     return (run_names,)

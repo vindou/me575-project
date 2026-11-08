@@ -2,6 +2,7 @@ import jax.numpy as jnp
 from . import quaternion as quat
 from .mpc import mpc_controller
 from .mppi import mppi_controller
+from .thruster_control import THRUSTER_CONTROLLERS
 
 
 def attitude_error(q_current, q_target):
@@ -89,4 +90,11 @@ CONTROLLERS = {
     "pd": pd_controller,
     "mpc": mpc_controller,
     "mppi": mppi_controller,
+}
+
+
+# Controllers offered for each plant model (the `model:` key of the plant config).
+CONTROLLERS_BY_MODEL = {
+    "attitude": CONTROLLERS,
+    "thruster_1d": THRUSTER_CONTROLLERS,
 }

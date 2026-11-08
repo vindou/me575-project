@@ -147,3 +147,14 @@ def test_view_run_notebook_shows_a_saved_run(tmp_path, monkeypatch):
     assert list(defs["runs"]) == ["results"]       # the folder itself holds run.npz
     assert defs["runs"]["results"]["t"][-1] == pytest.approx(60.0)
     assert defs["animation_fig"] is not None
+
+
+@pytest.mark.slow
+def test_view_run_notebook_skips_thruster_runs(tmp_path, monkeypatch):
+    for config, folder in (("cubesat_6u.yaml", "attitude"), ("thruster_1d.yaml", "thruster")):
+        subprocess.run([sys.executable, str(ROOT / "run_sim.py"), str(ROOT / "config" / config),
+                        str(tmp_path / "results" / folder)], check=True, capture_output=True,
+                       cwd=ROOT)
+    monkeypatch.chdir(tmp_path)
+    defs = run_notebook("view_run")
+    assert list(defs["runs"]) == ["attitude"]
