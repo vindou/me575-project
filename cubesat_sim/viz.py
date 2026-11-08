@@ -64,9 +64,69 @@ def summary(res, cfg):
     }
 
 
+def performance(res, cfg, q_target):
+    """Closed-loop performance of one run against a fixed target, as a dict.
+
+    Settling time: the first time after which the pointing error stays inside
+    requirements.settle_band_arcsec and the body rate below settle_rate_deg_s until the
+    end of the run (None if never). The hold statistics use the samples after settling:
+    RMS and the 99.73th percentile (the "3 sigma" level) of the pointing error.
+    Torque effort is the integral of sum_i |u_i| dt over the run.
+    """
+    r = _numpy(res)
+    req = cfg.requirements
+    t = r["t"]
+    dt = float(t[1] - t[0]) if len(t) > 1 else 0.0
+    err = np.degrees(attitude_angle(r["q"], q_target)) * 3600.0
+    rate = np.degrees(np.linalg.norm(r["w"], axis=1))
+    band = req.get("settle_band_arcsec", np.inf)
+    rate_band = req.get("settle_rate_deg_s", np.inf)
+    cap = req.get("max_slew_rate_deg_s", np.inf)
+    outside = np.flatnonzero((err > band) | (rate > rate_band))
+    if len(outside) == 0:
+        k_settle = 0
+    elif outside[-1] + 1 < len(t):
+        k_settle = outside[-1] + 1
+    else:
+        k_settle = None
+    hold = err[k_settle:] if k_settle is not None else np.array([])
+    return {
+        "initial error [deg]": float(err[0] / 3600.0),
+        "final error [arcsec]": float(err[-1]),
+        "settling time [s]": None if k_settle is None else float(t[k_settle]),
+        "hold RMS [arcsec]": float(np.sqrt(np.mean(hold**2))) if len(hold) else None,
+        "hold 3σ [arcsec]": float(np.percentile(hold, 99.73)) if len(hold) else None,
+        "peak rate [deg/s]": float(rate.max()),
+        "time above rate limit [s]": float((rate > cap).sum() * dt),
+        "peak |h| [% h_max]": float(100.0 * np.abs(r["h"]).max() / float(cfg.wheels.h_max)),
+        "peak |u| [mN·m]": float(1e3 * np.abs(r["u"]).max()),
+        "torque effort [mN·m·s]": float(1e3 * np.abs(r["u"][:-1]).sum() * dt),
+    }
+
+
+def requirement_checks(perf, cfg):
+    """PASS/FAIL (or "not settled") of a performance() dict against cfg.requirements."""
+    req = cfg.requirements
+
+    def check(value, limit):
+        if limit is None:
+            return None
+        if value is None:
+            return "FAIL (not settled)"
+        return "PASS" if value <= limit else "FAIL"
+
+    return {
+        "hold RMS": check(perf["hold RMS [arcsec]"], req.get("pointing_error_arcsec_rms")),
+        "hold 3σ": check(perf["hold 3σ [arcsec]"], req.get("pointing_error_arcsec_3sigma")),
+        "slew rate": check(perf["peak rate [deg/s]"], req.get("max_slew_rate_deg_s")),
+        "wheel momentum": check(perf["peak |h| [% h_max]"] / 100.0,
+                                req.get("wheel_momentum_warning_frac")),
+    }
+
+
 # --- time series -----------------------------------------------------------------------
 
-def time_series(runs, cfg, q_target=None, height=900):
+def time_series(runs, cfg, q_target=None, height=900, colors=None):
     """Linked time series for one run or several.
 
     runs     : a result dict, or {name: result dict} to compare runs.
@@ -77,6 +137,8 @@ def time_series(runs, cfg, q_target=None, height=900):
     One run: each plot shows the components (x, y, z or wheels 1-4).
     Several runs: each plot shows one line per run (vector norm or the largest wheel),
     and clicking a run in the legend hides it in every plot.
+    colors   : optional {run name: color}, so a run keeps its color when others are
+               added or removed. Runs not in it use RUN_COLORS by position.
     """
     if "t" in runs:
         runs = {"run": runs}
@@ -105,7 +167,7 @@ def time_series(runs, cfg, q_target=None, height=900):
 
     for n, (name, r) in enumerate(runs.items()):
         t = r["t"]
-        color = RUN_COLORS[n % len(RUN_COLORS)]
+        color = (colors or {}).get(name, RUN_COLORS[n % len(RUN_COLORS)])
         ref = r["q"][0] if q_target is None else q_target
         angle = attitude_angle(r["q"], ref)
         error = np.degrees(angle) * 3600.0 if pointing else np.degrees(angle)

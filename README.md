@@ -16,6 +16,7 @@ A second plant, a 1D one-directional thruster with a PID controller, is describe
     python -m pytest -m slow          # also the long-horizon run and the notebook
     marimo edit notebooks/explore.py  # run scenarios: plots and 3D animation
     marimo edit notebooks/view_run.py # plots and 3D animation of saved runs
+    marimo edit notebooks/compare_controllers.py # PD vs MPC vs MPPI: metrics, requirements, plots
 
 On Windows, use `.venv\Scripts\python.exe` instead of `python` to use the project environment.
 
@@ -204,6 +205,8 @@ shared by both plants; `simulate()`/`run()` (attitude) and
 - `config/thruster_1d.yaml`, `config/control/thruster_pid.yaml`: thruster plant and PID settings.
 - `notebooks/explore.py`: marimo notebook to run scenarios and compare command laws.
 - `notebooks/view_run.py`: marimo notebook to view and compare runs saved by `run_sim.py`.
+- `notebooks/compare_controllers.py`: marimo notebook that runs PD, MPC and MPPI on one
+  scenario and compares performance metrics, requirement checks, time histories and 3D motion.
 
 ## Conventions
 

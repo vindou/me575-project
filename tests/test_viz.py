@@ -158,3 +158,54 @@ def test_view_run_notebook_skips_thruster_runs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     defs = run_notebook("view_run")
     assert list(defs["runs"]) == ["attitude"]
+
+
+# --- controller comparison -----------------------------------------------------------------
+
+def synthetic_run(cfg, err_arcsec, rate_deg_s, dt=1.0):
+    """A run that rotates about z by err_arcsec from the target [0, 0, 0, 1]."""
+    n = len(err_arcsec)
+    half = np.radians(np.asarray(err_arcsec) / 3600.0) / 2.0
+    q = np.stack([np.zeros(n), np.zeros(n), np.sin(half), np.cos(half)], axis=1)
+    w = np.zeros((n, 3))
+    w[:, 2] = np.radians(rate_deg_s)
+    return {"t": np.arange(n) * dt, "q": q, "w": w, "h": np.zeros((n, 4)),
+            "u": np.full((n, 4), 1e-4), "H_inertial": np.zeros((n, 3))}
+
+
+def test_performance_settling_and_hold(cfg):
+    # Inside the 60 arcsec band from sample 4 on; the rate settles at sample 3.
+    err = [3600.0, 600.0, 100.0, 70.0, 50.0, 10.0, -10.0, 10.0]
+    rate = [0.6, 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    p = viz.performance(synthetic_run(cfg, err, rate), cfg, np.array([0, 0, 0, 1.0]))
+    assert p["initial error [deg]"] == pytest.approx(1.0)
+    assert p["settling time [s]"] == 4.0
+    assert p["hold RMS [arcsec]"] == pytest.approx(np.sqrt(np.mean(np.square([50, 10, 10, 10]))))
+    assert p["peak rate [deg/s]"] == pytest.approx(0.6)
+    assert p["time above rate limit [s]"] == 1.0
+    assert p["torque effort [mN·m·s]"] == pytest.approx(1e3 * 4e-4 * 7)
+    checks = viz.requirement_checks(p, cfg)
+    assert checks["hold RMS"] == "PASS" and checks["slew rate"] == "FAIL"
+
+
+def test_performance_not_settled(cfg):
+    p = viz.performance(synthetic_run(cfg, [10.0, 10.0, 100.0], [0, 0, 0]), cfg,
+                        np.array([0, 0, 0, 1.0]))
+    assert p["settling time [s]"] is None and p["hold RMS [arcsec]"] is None
+    assert viz.requirement_checks(p, cfg)["hold RMS"] == "FAIL (not settled)"
+
+
+def test_time_series_colors_follow_the_run_name(cfg, res):
+    colors = {"b": "#eb6834"}
+    fig = viz.time_series({"a": res, "b": res}, cfg, colors=colors)
+    assert {t.line.color for t in fig.data if t.name == "b"} == {"#eb6834"}
+    assert {t.line.color for t in fig.data if t.name == "a"} == {viz.RUN_COLORS[0]}
+
+
+@pytest.mark.slow
+def test_compare_controllers_notebook_runs():
+    defs = run_notebook("compare_controllers")
+    assert set(defs["runs"]) == {"pd", "mpc", "mppi"}
+    for name, p in defs["perf"].items():
+        assert p["final error [arcsec]"] < 60.0, name
+    assert defs["time_series_fig"] is not None and defs["animation_fig"] is not None
