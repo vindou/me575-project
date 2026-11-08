@@ -56,6 +56,9 @@ def simulate(body, wheels, x0, dt, steps, command, external_torque=zero_torque):
     dt, steps        : Python numbers (they set the loop length).
     command(t, x)         -> wheel torque command T_w (torque of each wheel on the body),
                              N elements. Must be JAX-traceable.
+        A stateful command (for example MPC with warm starts) instead has an `init_state`
+        attribute (a JAX pytree) and is called as command(t, x, state) -> (u, new_state).
+        The state is carried from one step to the next and is not returned.
     external_torque(t, x) -> body torque, 3 elements. Must be JAX-traceable.
     Both are evaluated at the start of each step and held for the step.
 
@@ -65,15 +68,25 @@ def simulate(body, wheels, x0, dt, steps, command, external_torque=zero_torque):
     """
     t = jnp.arange(steps + 1) * dt
 
-    def step(xk, tk):
-        u_cmd = jnp.asarray(command(tk, xk), dtype=xk.dtype)
+    stateful = hasattr(command, "init_state")
+
+    def evaluate(tk, xk, ck):
+        if stateful:
+            u_cmd, ck = command(tk, xk, ck)
+        else:
+            u_cmd = command(tk, xk)
+        return jnp.asarray(u_cmd, dtype=xk.dtype), ck
+
+    def step(carry, tk):
+        xk, ck = carry
+        u_cmd, ck = evaluate(tk, xk, ck)
         x_next, u = dyn.rk4_step_with_torque(xk, u_cmd, external_torque(tk, xk), dt,
                                              body, wheels)
-        return x_next, (xk, u, dyn.momentum_inertial(xk, body, wheels))
+        return (x_next, ck), (xk, u, dyn.momentum_inertial(xk, body, wheels))
 
-    x_last, (X, U, H) = jax.lax.scan(step, x0, t[:-1])
-    u_last = dyn.limit_wheel_torque(jnp.asarray(command(t[-1], x_last), dtype=x_last.dtype),
-                                    x_last[7:], wheels)
+    c0 = command.init_state if stateful else None
+    (x_last, c_last), (X, U, H) = jax.lax.scan(step, (x0, c0), t[:-1])
+    u_last = dyn.limit_wheel_torque(evaluate(t[-1], x_last, c_last)[0], x_last[7:], wheels)
     X = jnp.concatenate([X, x_last[None]])
     U = jnp.concatenate([U, u_last[None]])
     H = jnp.concatenate([H, dyn.momentum_inertial(x_last, body, wheels)[None]])
@@ -89,7 +102,7 @@ def run(cfg, command=None, external_torque=None):
     """Run one simulation from the config, compiled with jax.jit.
 
     command(t, x) -> wheel torque command, N elements. Default: the file profile.
-        A controller will use this same interface later.
+        Stateful commands (see simulate) are also accepted.
     external_torque(t, x) -> body torque, 3 elements. Default: zero.
 
     Both functions must be written with jax.numpy. Each new function object triggers

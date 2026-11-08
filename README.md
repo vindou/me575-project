@@ -1,7 +1,7 @@
 # CubeSat attitude simulation
 
-A rigid 6U CubeSat with four reaction wheels, a nonlinear plant, and a fixed-target PD
-controller. The default simulations have no external disturbances or sensor models.
+A rigid 6U CubeSat with four reaction wheels, a nonlinear plant, and fixed-target PD,
+nonlinear MPC and MPPI controllers. The default simulations have no external disturbances or sensor models.
 
 ## Use
 
@@ -39,6 +39,48 @@ the corresponding files. The runner prints final pointing error for closed-loop 
 The saved-run notebook currently plots rotation from the initial attitude; target-error
 plots require passing the saved target to `viz.time_series(..., q_target=...)`.
 
+### Nonlinear shooting MPC
+
+`--controller mpc` (`cubesat_sim/mpc.py`) replans every `control_interval_s` (default
+0.2 s) and holds each torque in between. Each solve optimizes a piecewise-constant
+wheel torque sequence over `horizon_steps` intervals (default 25, a 5 s horizon) with
+optax L-BFGS, differentiating a rollout of the plant's own RK4 model with `jax.grad`.
+Torques are parameterized as `u = u_max * tanh(z)`, so they never exceed the limit, and
+each solve warm-starts from the previous plan shifted by one interval.
+
+The cost penalizes attitude error, `(rate_weight_s * |omega|)^2`, torque, and a weighted
+terminal state. Two optional soft penalties grow quickly past `max_rate_deg_s` (body rate)
+and `momentum_warning_frac * h_max` (each wheel). These are penalties, not hard
+constraints. The prediction model assumes no external torque. The default
+`controllers.yaml` leaves the rate limit off: at 0.5 deg/s the 50 deg slew needs about
+100 s, longer than the 60 s run. The coupled control files turn it on.
+
+    python run_sim.py --controller mpc
+    python run_sim.py config/cubesat_6u_coupled.yaml --controller mpc --control-config config/control/coupled_slow.yaml
+
+MPC runs take longer than PD: about 10 s for the 60 s default run and about 75 s for the
+600 s coupled run on a laptop CPU.
+
+### MPPI
+
+`--controller mppi` (`cubesat_sim/mppi.py`) uses the same plan, prediction model, cost
+and torque hold as MPC (shared in `cubesat_sim/horizon.py`) but is sampling-based: no
+gradients. Each replan runs `iterations` rounds. A round rolls out `samples` noisy copies
+of the plan in parallel (`jax.vmap`), weights them by `softmax(-(S - S_min) / (temperature
+* (S_median - S_min)))`, and averages. The noise sigma shrinks from `noise_sigma` to
+`final_sigma_fraction * noise_sigma` over the rounds; the residual pointing jitter scales
+with the final sigma. Noise and plan are projected off the wheel null space; without that
+the wheel momentum drifts to saturation. The default horizon is 2 s (10 intervals): longer
+horizons add sampling noise to the first torque, the only one applied. Runs are
+reproducible for a given `seed`.
+
+    python run_sim.py --controller mppi
+    python run_sim.py config/cubesat_6u_coupled.yaml --controller mppi --control-config config/control/coupled_slow.yaml
+
+Measured with the default settings (attitude error after settling): about 3 arcsec RMS on
+the default slew (seeds 0-5) and about 4 arcsec on the coupled run, against ~0 for MPC. The
+runs take about 4 s and 30 s.
+
 ### Coupled PD experiment
 
 `config/cubesat_6u_coupled.yaml` is an assumed test scenario with a constant
@@ -68,8 +110,9 @@ To add a controller without editing the runner:
 Every command must use JAX-compatible operations and return four wheel torque commands.
 Its state is `x = [q (4), omega (3), h (4)]`, with angular velocity in rad/s. Factories may
 accept different named parameters; the runner forwards only the selected method's
-settings. The current interface supports stateless feedback; controllers with integral
-or other persistent state require extending the simulation state. The explorer notebook's
+settings. A controller with persistent state (integral terms, warm starts) instead sets
+`command.init_state` (a JAX pytree) and is called as `command(t, x, state) -> (u, state)`;
+the simulator carries the state between steps. MPC and MPPI use this interface. The explorer notebook's
 `COMMANDS` registry is separate and still requires registering interactive methods there.
 
 ## Files
@@ -77,6 +120,9 @@ or other persistent state require extending the simulation state. The explorer n
 - `config/cubesat_6u.yaml`: all parameters, with a source tag for each value.
 - `config/control/controllers.yaml`: fixed target and controller-specific parameters.
 - `cubesat_sim/controller.py`: controller factories and the runner's `CONTROLLERS` registry.
+- `cubesat_sim/horizon.py`: shared receding-horizon pieces (cost, checks, torque hold).
+- `cubesat_sim/mpc.py`: nonlinear shooting MPC (optax L-BFGS over an RK4 rollout).
+- `cubesat_sim/mppi.py`: MPPI (sampled rollouts with annealed noise).
 - `cubesat_sim/config.py`: loads and checks the file, builds the wheel matrix A.
 - `cubesat_sim/dynamics.py`: equations of motion, wheel limits, RK4 step.
 - `cubesat_sim/quaternion.py`: quaternion functions.
@@ -121,6 +167,8 @@ Code symbols map to the paper as `J` = I_S, `A` = L, `h` = I_W ω_W, `u` = T_w.
 - `test_limits.py`: torque and momentum limits over whole runs.
 - `test_jax.py`: compilation, gradients against finite differences and closed forms, vmap.
 - `test_viz.py`: the figures draw what the simulation computed (axes, momentum, limits).
+- `test_horizon_controllers.py`: the stateful command interface; MPC and MPPI convergence,
+  torque hold, soft rate limit, MPPI null-space drift and seeding, parameter checks.
 - `test_regression.py`: three runs against `tests/data/golden_runs.npz`. After an intended
   model change: `REGENERATE_GOLDEN=1 python -m pytest tests/test_regression.py`.
 
@@ -141,5 +189,5 @@ The model is written in JAX with double precision on (set when `cubesat_sim` is 
 
 ## How to add a controller later
 
-`run(cfg, command=f)` accepts a function `f(t, x)` that returns the four wheel torque
+`run(cfg, command=f)` accepts a function `f(t, x)` (or a stateful command, see above) that returns the four wheel torque
 commands T_w. For a body torque command T_C, the paper's allocation (eq. 21) gives T_w. The open-loop profile in the file is the default for this function.

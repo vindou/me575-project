@@ -1,5 +1,7 @@
 import jax.numpy as jnp
 from . import quaternion as quat
+from .mpc import mpc_controller
+from .mppi import mppi_controller
 
 
 def attitude_error(q_current, q_target):
@@ -85,4 +87,6 @@ def pd_controller(cfg, q_target, Kp=None, Kd=None, *, wn_rad_s=None, zeta=None):
 # Every factory must return command(t, x) with four wheel torque commands.
 CONTROLLERS = {
     "pd": pd_controller,
+    "mpc": mpc_controller,
+    "mppi": mppi_controller,
 }

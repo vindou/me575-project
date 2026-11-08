@@ -9,3 +9,28 @@ controllers:
   pd:
     wn_rad_s: 0.02
     zeta: 1.0
+  mpc:
+    control_interval_s: 0.2
+    horizon_steps: 25
+    iterations: 10
+    first_iterations: 50
+    rate_weight_s: 1.0
+    w_torque: 1.0e-4
+    w_terminal: 10.0
+    max_rate_deg_s: 0.5          # soft limit from requirements.max_slew_rate_deg_s
+    momentum_warning_frac: 0.8   # soft limit from requirements.wheel_momentum_warning_frac
+  mppi:
+    control_interval_s: 0.2
+    horizon_steps: 10
+    samples: 256
+    iterations: 8
+    first_iterations: 40
+    noise_sigma: 0.1
+    final_sigma_fraction: 0.01
+    temperature: 0.01
+    seed: 0
+    rate_weight_s: 1.0
+    w_torque: 1.0e-4
+    w_terminal: 10.0
+    max_rate_deg_s: 0.5
+    momentum_warning_frac: 0.8
